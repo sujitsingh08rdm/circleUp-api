@@ -1,0 +1,158 @@
+import { NextFunction, Request, Response } from "express";
+import AuthModel from "../model/auth.model";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+import { v4 as uuid } from "uuid";
+import { CatchError, TryError } from "../util/error";
+import {
+  PayloadInterface,
+  SessionInterface,
+} from "../middleware/auth.middleware";
+import { downloadObject } from "../util/s3";
+import moment from "moment";
+
+const accessTokenExpiry = "10m";
+const tenMinutesInMs = 10 * 60 * 1000;
+const sevenDaysInMs = 7 * 24 * 60 * 60 * 1000;
+
+type TokenType = "at" | "rt";
+
+const generateToken = (payload: PayloadInterface) => {
+  const accessToken = jwt.sign(payload, process.env.AUTH_SECRET!, {
+    expiresIn: accessTokenExpiry,
+  });
+  const refreshToken = uuid();
+  return { accessToken, refreshToken };
+};
+
+const getOptions = (tokenType: TokenType) => {
+  return {
+    httpOnly: true,
+    maxAge: tokenType === "at" ? tenMinutesInMs : sevenDaysInMs,
+    secure: false,
+    domain: "localhost",
+  };
+};
+
+export const signup = async (req: Request, res: Response) => {
+  try {
+    await AuthModel.create(req.body);
+    res.json({ message: "Sign up Successfull.." });
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      res.status(500).json({ message: error.message });
+    }
+  }
+};
+
+export const login = async (req: Request, res: Response) => {
+  try {
+    const { email, password } = req.body;
+    const user = await AuthModel.findOne({ email });
+
+    if (!user) {
+      // throw new Error("Invalid Credentials");
+      throw TryError("Invalid Credentials", 404);
+    }
+
+    const isLogin = await bcrypt.compare(password, user.password);
+
+    if (!isLogin) {
+      throw TryError("Invalid Password/Username", 401);
+    }
+
+    const payload = {
+      id: user._id,
+      fullname: user.fullname,
+      email: user.email,
+      mobile: user.mobile,
+      image: user.image ? await downloadObject(user.image) : null,
+    };
+
+    const { accessToken, refreshToken } = generateToken(payload);
+
+    await AuthModel.updateOne(
+      { _id: user.id },
+      { $set: { refreshToken, expiry: moment().add(7, "days").toDate() } },
+    );
+
+    res.cookie("accessToken", accessToken, getOptions("at"));
+    res.cookie("refreshToken", refreshToken, getOptions("rt"));
+    res.json({ message: "Login Sucessfull.." });
+  } catch (error: unknown) {
+    CatchError(error, res);
+  }
+};
+
+export const refreshToken = async (req: SessionInterface, res: Response) => {
+  try {
+    if (!req.session) {
+      throw TryError("Failed to refresh token", 401);
+    }
+
+    req.session.image = req.session.image
+      ? await downloadObject(req.session.image)
+      : null;
+
+    const { accessToken, refreshToken } = generateToken(req.session);
+    await AuthModel.updateOne(
+      { _id: req.session.id },
+      { $set: { refreshToken, expiry: moment().add(7, "days").toDate() } },
+    );
+    res.cookie("accessToken", accessToken, getOptions("at"));
+    res.cookie("refreshToken", refreshToken, getOptions("rt"));
+    res.json({ message: "Token refreshment done" });
+  } catch (error) {
+    CatchError(error, res, "Failed to refresh token");
+  }
+};
+
+export const getSession = (req: Request, res: Response) => {
+  try {
+    const accessToken = req.cookies.accessToken;
+    if (!accessToken) throw TryError("Invalid Session", 401);
+
+    const session = jwt.verify(accessToken, process.env.AUTH_SECRET!);
+    res.json(session);
+  } catch (error: unknown) {
+    CatchError(error, res);
+  }
+};
+
+export const updateProfilePicture = async (
+  req: SessionInterface,
+  res: Response,
+) => {
+  try {
+    const path = req.body.path;
+    if (!path || !req.session) {
+      throw TryError("Failed to update Profile picture", 400);
+    }
+
+    await AuthModel.updateOne(
+      { _id: req.session.id },
+      { $set: { image: path } },
+    );
+
+    const url = await downloadObject(path);
+    res.json({ image: url });
+  } catch (error) {
+    CatchError(error, res, "Failed to update Profile picture");
+  }
+};
+
+export const logout = async (req: Request, res: Response) => {
+  try {
+    const options = {
+      httpOnly: true,
+      maxAge: 0,
+      secure: false,
+      domain: "localhost",
+    };
+    res.clearCookie("accessToken", options);
+    res.clearCookie("refreshToken", options);
+    res.json({ message: "Logout success" });
+  } catch (error) {
+    CatchError(error, res, "Failed to update Profile picture");
+  }
+};
