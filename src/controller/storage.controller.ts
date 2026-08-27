@@ -28,12 +28,13 @@ export const uploadFile = async (req: SessionInterface, res: Response) => {
   try {
     const path = req.body?.path;
     const type = req.body?.type;
+    const status = req.body?.status;
 
-    if (!type || !path) {
+    if (!type || !path || !status) {
       throw TryError("Invalid request, path or type is missing", 400);
     }
 
-    const url = await uploadObject(path, type);
+    const url = await uploadObject(path, type, status);
     res.json({ url });
   } catch (error) {
     CatchError(error, res);

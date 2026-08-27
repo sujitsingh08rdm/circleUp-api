@@ -8,7 +8,6 @@ import {
   PayloadInterface,
   SessionInterface,
 } from "../middleware/auth.middleware";
-import { downloadObject } from "../util/s3";
 import moment from "moment";
 
 const accessTokenExpiry = "10m";
@@ -66,7 +65,7 @@ export const login = async (req: Request, res: Response) => {
       fullname: user.fullname,
       email: user.email,
       mobile: user.mobile,
-      image: user.image ? await downloadObject(user.image) : null,
+      image: user.image,
     };
 
     const { accessToken, refreshToken } = generateToken(payload);
@@ -89,10 +88,6 @@ export const refreshToken = async (req: SessionInterface, res: Response) => {
     if (!req.session) {
       throw TryError("Failed to refresh token", 401);
     }
-
-    req.session.image = req.session.image
-      ? await downloadObject(req.session.image)
-      : null;
 
     const { accessToken, refreshToken } = generateToken(req.session);
     await AuthModel.updateOne(
@@ -124,7 +119,7 @@ export const updateProfilePicture = async (
   res: Response,
 ) => {
   try {
-    const path = req.body.path;
+    const path = `${process.env.S3_URL}/${req.body.path}`;
     if (!path || !req.session) {
       throw TryError("Failed to update Profile picture", 400);
     }
@@ -134,8 +129,7 @@ export const updateProfilePicture = async (
       { $set: { image: path } },
     );
 
-    const url = await downloadObject(path);
-    res.json({ image: url });
+    res.json({ image: path });
   } catch (error) {
     CatchError(error, res, "Failed to update Profile picture");
   }
