@@ -8,7 +8,7 @@ export const downloadFile = async (req: Request, res: Response) => {
   try {
     const path = req.body?.path;
     if (!path) {
-      throw TryError("Failed to generate URL, path is missing", 400);
+      throw TryError("Failed to generate URL, path is missing", 401);
     }
 
     const isExist = await isFileExists(path);
