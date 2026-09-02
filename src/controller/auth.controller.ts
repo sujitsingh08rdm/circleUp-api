@@ -10,8 +10,9 @@ import {
 } from "../middleware/auth.middleware";
 import moment from "moment";
 
-const accessTokenExpiry = "10m";
-const tenMinutesInMs = 10 * 60 * 1000;
+const accessTokenExpiry = "7d";
+// const tenMinutesInMs = 10 * 60 * 1000;
+const tenMinutesInMs = 7 * 24 * 60 * 60 * 1000;
 const sevenDaysInMs = 7 * 24 * 60 * 60 * 1000;
 
 type TokenType = "at" | "rt";
